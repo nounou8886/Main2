@@ -1,0 +1,227 @@
+/* =====================================================================
+   Mk4 PWA — MODULE 5 : style.css
+   Thème sombre de Mk4, pensé pour téléphone (léger : peu d'effets).
+   Règle d'or anti-défilement : la page ne bouge jamais, seule la liste
+   des messages défile ; la hauteur suit le clavier (--hauteur, via ui.js).
+   ===================================================================== */
+:root {
+  --fond: #070914; --texte: #e9ebf8; --doux: #8e94b8;
+  --accent: #7c6cff; --bleu: #35c4ff; --vert: #7be0a8;
+  --bord: rgba(255, 255, 255, .09); --verre: rgba(255, 255, 255, .05);
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+
+html, body {
+  height: 100%; margin: 0; overflow: hidden; overscroll-behavior: none;
+  background: var(--fond); color: var(--texte);
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  -webkit-text-size-adjust: 100%;
+}
+body {
+  position: fixed; inset: 0;
+  background:
+    radial-gradient(900px 500px at 0% -10%, #2b1f7a66, transparent),
+    radial-gradient(800px 500px at 110% 10%, #0a4f8566, transparent),
+    var(--fond);
+}
+#racine { height: 100%; }
+
+.app {
+  display: flex; flex-direction: column; gap: 8px;
+  height: var(--hauteur, 100dvh); max-width: 760px; margin: 0 auto;
+  padding: calc(env(safe-area-inset-top, 0px) + 8px) 10px calc(env(safe-area-inset-bottom, 0px) + 8px);
+}
+
+/* ---- En-tête ---- */
+.tete {
+  display: flex; align-items: center; gap: 12px; flex: none;
+  padding: 10px 12px; border-radius: 20px; background: var(--verre); border: 1px solid var(--bord);
+}
+.logo {
+  width: 40px; height: 40px; flex: none; border-radius: 14px; display: grid; place-items: center;
+  font-weight: 800; font-size: 18px; color: #fff;
+  background: linear-gradient(135deg, var(--accent), var(--bleu)); box-shadow: 0 0 18px #7c6cff77;
+}
+.titre { display: flex; flex-direction: column; line-height: 1.25; min-width: 0; flex: 1; }
+.titre b { font-size: 18px; color: #fff; }
+.titre span { font-size: 12px; color: var(--doux); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.btn {
+  font: inherit; font-size: 14px; color: var(--texte); cursor: pointer; white-space: nowrap;
+  padding: 8px 12px; border-radius: 12px; border: 1px solid var(--bord); background: var(--verre);
+}
+.btn:active { background: rgba(255, 255, 255, .12); }
+.btn.danger { color: #ff9a9a; }
+
+/* ---- Onglets ---- */
+.onglets { display: flex; gap: 6px; flex: none; }
+.onglet {
+  flex: 1; font: inherit; font-size: 15px; color: var(--doux); cursor: pointer;
+  padding: 9px 0; border-radius: 14px; border: 1px solid var(--bord); background: transparent;
+}
+.onglet.actif { color: #fff; background: linear-gradient(135deg, #6d5cff55, #2fb7ff44); border-color: #7c6cff88; }
+
+/* ---- Vues ---- */
+.vue { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 8px; }
+
+.options { flex: none; border: 1px solid var(--bord); border-radius: 14px; padding: 8px 12px; background: var(--verre); font-size: 14px; }
+.options summary { cursor: pointer; color: var(--doux); }
+.options label { display: block; margin: 10px 0 4px; color: var(--doux); }
+.options label.case { color: var(--texte); display: flex; gap: 8px; align-items: center; }
+.options select {
+  width: 100%; font: inherit; font-size: 16px; color: var(--texte);
+  background: #141935; border: 1px solid var(--bord); border-radius: 10px; padding: 8px;
+}
+
+/* ---- Messages : seul ce bloc défile ---- */
+.fil {
+  flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch;
+  display: flex; flex-direction: column; gap: 10px; padding: 4px 2px;
+}
+.msg {
+  max-width: 88%; padding: 12px 16px; border-radius: 20px; font-size: 16px; line-height: 1.55;
+  overflow-wrap: anywhere; border: 1px solid var(--bord);
+}
+.msg p { margin: 0 0 .7em; }
+.msg p:last-child { margin-bottom: 0; }
+.msg ul, .msg ol { margin: .4em 0 .7em; padding-left: 1.4em; }
+.msg li { margin: .2em 0; }
+.msg h3, .msg h4, .msg h5 { margin: .8em 0 .4em; line-height: 1.3; }
+.msg pre { margin: .5em 0; padding: 10px 14px; border-radius: 12px; overflow-x: auto; background: #0b0e20; }
+.msg code { font-size: 14px; font-family: ui-monospace, Menlo, Consolas, monospace; }
+.msg a { color: #8fd0ff; }
+.msg.moi {
+  align-self: flex-end; color: #fff; border: none;
+  background: linear-gradient(135deg, #6d5cff, #2fb7ff);
+}
+.msg.bot { align-self: flex-start; background: rgba(255, 255, 255, .06); border: none; }
+.mini { display: block; max-width: 160px; max-height: 160px; border-radius: 12px; margin-bottom: 8px; }
+.note { font-size: 13px; opacity: .85; margin-bottom: 4px; }
+.sources { font-size: 14px; color: var(--doux); }
+
+.accueil { margin: auto; text-align: center; color: var(--doux); padding-top: 30px; }
+.accueil b { display: block; font-size: 22px; color: #fff; margin-bottom: 6px; }
+
+.etat { flex: none; min-height: 22px; font-size: 13px; color: var(--vert); padding: 0 4px; }
+
+/* ---- Saisie ---- */
+.apercu { flex: none; display: flex; gap: 8px; }
+.apercu:empty { display: none; }
+.puce { position: relative; }
+.puce-img { width: 56px; height: 56px; object-fit: cover; border-radius: 12px; display: block; }
+.puce button {
+  position: absolute; top: -6px; right: -6px; width: 22px; height: 22px; padding: 0; border-radius: 50%;
+  border: none; background: #ff6b6b; color: #fff; font-size: 14px; line-height: 22px; cursor: pointer;
+}
+.saisie {
+  flex: none; display: flex; align-items: flex-end; gap: 8px; padding: 6px;
+  background: var(--verre); border: 1px solid rgba(255, 255, 255, .12); border-radius: 22px;
+}
+.saisie textarea {
+  flex: 1; min-width: 0; resize: none; font: inherit; font-size: 16px;   /* 16px : iOS ne zoome pas */
+  color: var(--texte); background: transparent; border: none; outline: none; padding: 9px 4px;
+  max-height: 28dvh; line-height: 1.4;
+}
+.rond {
+  flex: none; width: 40px; height: 40px; border-radius: 50%; border: none; cursor: pointer;
+  font-size: 18px; color: #fff; background: rgba(255, 255, 255, .08);
+}
+.rond.envoi { background: linear-gradient(135deg, var(--accent), var(--bleu)); }
+.rond:disabled { opacity: .4; }
+
+/* ---- Mémoire ---- */
+#vueMem { overflow-y: auto; overscroll-behavior: contain; }
+.barre-mem { display: flex; flex-wrap: wrap; gap: 8px; }
+.liste-mem { display: flex; flex-direction: column; gap: 8px; padding-bottom: 8px; }
+.souv {
+  display: flex; gap: 8px; align-items: flex-start; padding: 10px 12px;
+  border-radius: 14px; background: var(--verre); border: 1px solid var(--bord);
+}
+.souv-txt { flex: 1; min-width: 0; }
+.souv-txt p { margin: 0 0 4px; overflow-wrap: anywhere; }
+.souv-txt small { color: var(--doux); }
+.souv-actions { display: flex; gap: 4px; flex: none; }
+.souv-actions button { font-size: 18px; background: none; border: none; cursor: pointer; padding: 4px; }
+.vide-mem { color: var(--doux); text-align: center; }
+
+/* ---- Animation « Mk4 is thinking » ---- */
+.chargement { display: inline-flex; align-items: center; gap: 10px; padding: 2px 0; }
+.anneau {
+  width: 16px; height: 16px; border-radius: 50%; display: inline-block;
+  background: conic-gradient(#7c6cff, #35c4ff, #b36cff, #7c6cff);
+  -webkit-mask: radial-gradient(farthest-side, transparent 56%, #000 58%);
+  mask: radial-gradient(farthest-side, transparent 56%, #000 58%);
+  animation: tourne 1s linear infinite;
+}
+.brille {
+  font-weight: 500; background: linear-gradient(90deg, #7f86ab 0%, #fff 50%, #7f86ab 100%);
+  background-size: 200% 100%; -webkit-background-clip: text; background-clip: text;
+  color: transparent; -webkit-text-fill-color: transparent; animation: brille 1.6s linear infinite;
+}
+.points { display: inline-flex; gap: 4px; }
+.points i { width: 5px; height: 5px; border-radius: 50%; background: var(--doux); animation: point 1.2s ease-in-out infinite; }
+.points i:nth-child(2) { animation-delay: .2s; }
+.points i:nth-child(3) { animation-delay: .4s; }
+@keyframes tourne { to { transform: rotate(360deg); } }
+@keyframes brille { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+@keyframes point { 0%, 80%, 100% { opacity: .25; transform: scale(.8); } 40% { opacity: 1; transform: scale(1.25); } }
+
+/* Petit écran avec clavier ouvert : on libère la place de l'en-tête */
+@media (max-height: 480px) { .tete, .onglets { display: none; } }
+
+/* ---- MODULE 6 : écran de démarrage (clé API + GPS) ---- */
+.demarrage {
+  height: 100dvh; max-width: 520px; margin: 0 auto; overflow-y: auto; overscroll-behavior: contain;
+  display: flex; flex-direction: column; gap: 12px; text-align: center;
+  padding: calc(env(safe-area-inset-top, 0px) + 24px) 16px calc(env(safe-area-inset-bottom, 0px) + 24px);
+}
+.demarrage h1 { margin: 0; font-size: 24px; color: #fff; }
+.demarrage h2 { margin: 0 0 6px; font-size: 16px; color: #fff; text-align: left; }
+.demarrage .doux { margin: 0; color: var(--doux); font-size: 14px; text-align: left; }
+.demarrage > .doux { text-align: center; }
+.demarrage a { color: #8fd0ff; }
+.logo.grand { width: 64px; height: 64px; font-size: 30px; border-radius: 22px; margin: 8px auto 0; }
+.carte {
+  display: flex; flex-direction: column; gap: 10px; padding: 14px;
+  border-radius: 18px; background: var(--verre); border: 1px solid var(--bord);
+}
+.carte input {
+  width: 100%; font: inherit; font-size: 16px; color: var(--texte);
+  background: #141935; border: 1px solid var(--bord); border-radius: 12px; padding: 12px;
+}
+.carte .etat { text-align: left; min-height: 20px; }
+.btn.principal { font-size: 16px; padding: 14px; background: linear-gradient(135deg, var(--accent), var(--bleu)); border: none; color: #fff; }
+.btn:disabled { opacity: .45; }
+
+/* ---- MODULE 7 : appel vocal ---- */
+.appel {
+  position: fixed; inset: 0; z-index: 50; height: 100dvh; overflow-y: auto;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px;
+  padding: calc(env(safe-area-inset-top, 0px) + 24px) 24px calc(env(safe-area-inset-bottom, 0px) + 24px);
+  text-align: center;
+  background: radial-gradient(700px 500px at 50% 20%, #2b1f7a88, transparent), var(--fond);
+}
+.appel-nom { font-size: 26px; color: #fff; }
+.appel-statut { color: var(--doux); font-size: 16px; min-height: 22px; }
+.appel-vous { margin: 0; color: var(--texte); font-size: 16px; max-width: 520px; overflow-wrap: anywhere; }
+.appel-lui { margin: 0; color: var(--vert); font-size: 16px; max-width: 520px; overflow-wrap: anywhere; }
+.appel-msg { margin: 0; color: #ffb0b0; font-size: 14px; max-width: 520px; }
+.appel-vous:empty, .appel-lui:empty, .appel-msg:empty { display: none; }
+.appel-voix { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: center; }
+.appel select {
+  font: inherit; font-size: 16px; color: var(--texte);
+  background: #141935; border: 1px solid var(--bord); border-radius: 12px; padding: 9px;
+}
+.appel .btn.principal { min-width: 220px; }
+.orbe {
+  width: 120px; height: 120px; border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #cfc9ff, #7c6cff 45%, #2fb7ff);
+  box-shadow: 0 0 40px #7c6cffaa; opacity: .7;
+}
+.appel[data-etat="ecoute"] .orbe { opacity: 1; animation: orbe-ecoute 1.6s ease-in-out infinite; }
+.appel[data-etat="reflexion"] .orbe { animation: orbe-pense 1s ease-in-out infinite alternate; }
+.appel[data-etat="parole"] .orbe { opacity: 1; animation: orbe-parle .45s ease-in-out infinite alternate; }
+@keyframes orbe-ecoute { 0%, 100% { transform: scale(1); box-shadow: 0 0 30px #7c6cff88; } 50% { transform: scale(1.12); box-shadow: 0 0 60px #35c4ffcc; } }
+@keyframes orbe-pense { from { opacity: .45; } to { opacity: .95; } }
+@keyframes orbe-parle { from { transform: scale(.96); } to { transform: scale(1.18); } }
