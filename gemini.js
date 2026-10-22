@@ -1,7 +1,15 @@
+// =====================================================================
+// Mk4 PWA — MODULE 1 : gemini.js (appels à Gemini)
+// Rôle : clés API (jusqu'à 5, stockées sur l'appareil, bascule automatique
+//        à TOUTE erreur), test des clés, génération de texte avec repli de
+//        modèle, recherche web, photos, embeddings.
+// Ne dépend d'aucun autre module. Les autres modules l'importent :
+//   import { generer, embed, lireCle } from "./gemini.js";
+// =====================================================================
 
 const API = "https://generativelanguage.googleapis.com/v1beta";
-const CLE_STOCK = "mk4_cle_api";
-const CLES_STOCK = "mk4_cles_api";
+const CLE_STOCK = "mk4_cle_api";      // ancien stockage (une seule clé), repris automatiquement
+const CLES_STOCK = "mk4_cles_api";    // stockage actuel (liste de clés)
 
 export const MODELES = [
   { label: "⚡ 3.5 Flash-Lite (économe)", id: "gemini-3.5-flash-lite" },
@@ -14,8 +22,10 @@ export const MODELE_EMBED = "gemini-embedding-001";
 export const DIMS_EMBED = 768;
 export const MAX_PHOTOS = 3;
 export const TAILLE_PHOTO = 1024;
-export const TEMPERATURE_DEFAUT = 0.85;
+export const TEMPERATURE_DEFAUT = 0.85;   // au-dessus de 0,9 il divague
 
+// ---------- Erreur dédiée ----------
+// fatal = true : inutile de réessayer (aucune clé ou toutes refusées).
 export class GeminiError extends Error {
   constructor(message, status = 0, fatal = false) {
     super(message);
@@ -25,24 +35,25 @@ export class GeminiError extends Error {
   }
 }
 
+// ---------- Clés API (localStorage, uniquement sur cet appareil) ----------
+// Plusieurs clés possibles : à la moindre erreur, Mk4 passe tout de suite
+// à la suivante, dans le même appel.
 export const MAX_CLES = 5;
-const PAUSE_QUOTA = 60 * 1000;
-const PAUSE_REFUSEE = 24 * 3600 * 1000;
-const pauses = new Map();
-let actif = 0;
+const PAUSE_QUOTA = 60 * 1000;            // clé épuisée : on la laisse 1 min
+const PAUSE_REFUSEE = 24 * 3600 * 1000;   // clé refusée : on l'ignore 24 h
+const pauses = new Map();                 // clé -> fin de pause (ms)
+let actif = 0;                            // numéro de la clé en cours
 const ecouteurs = [];
 
 export function lireCles() {
   try {
     const l = JSON.parse(localStorage.getItem(CLES_STOCK) || "null");
     if (Array.isArray(l)) return l.filter((c) => typeof c === "string" && c.trim());
-  } catch {}
+  } catch { /* rien */ }
   try {
     const ancienne = (localStorage.getItem(CLE_STOCK) || "").trim();
     return ancienne ? [ancienne] : [];
-  } catch {
-    return [];
-  }
+  } catch { return []; }
 }
 
 function ecrireCles(liste) {
@@ -51,9 +62,7 @@ function ecrireCles(liste) {
     localStorage.setItem(CLES_STOCK, JSON.stringify(propre));
     localStorage.removeItem(CLE_STOCK);
     return true;
-  } catch {
-    return false;
-  }
+  } catch { return false; }
 }
 
 export function lireCle() {
@@ -69,7 +78,7 @@ export function ajouterCle(cle) {
   if (l.length >= MAX_CLES) return false;
   return ecrireCles([...l, c]);
 }
-export const enregistrerCle = ajouterCle;
+export const enregistrerCle = ajouterCle;   // ancien nom
 
 export function retirerCle(cle) {
   pauses.delete(cle);
@@ -82,148 +91,109 @@ export function effacerCle() {
   ecrireCles([]);
 }
 
-export function surBascule(fn) {
-  if (typeof fn === "function") ecouteurs.push(fn);
-}
+// fn({ numero, total }) est appelée quand Mk4 bascule sur une autre clé.
+export function surBascule(fn) { if (typeof fn === "function") ecouteurs.push(fn); }
 
 export function etatCles() {
   const maintenant = Date.now();
   return lireCles().map((c, i) => ({
-    numero: i + 1,
-    fin: c.slice(-4),
-    active: i === actif,
+    numero: i + 1, fin: c.slice(-4), active: i === actif,
     enPause: (pauses.get(c) || 0) > maintenant,
   }));
 }
 
 function prevenir(idx, total) {
   console.info(`🔁 Bascule sur la clé ${idx + 1}/${total}`);
-  for (const f of ecouteurs) {
-    try {
-      f({ numero: idx + 1, total });
-    } catch {}
-  }
+  for (const f of ecouteurs) { try { f({ numero: idx + 1, total }); } catch { /* rien */ } }
 }
 
+// ---------- Appel HTTP de base ----------
 async function appelUneCle(cle, chemin, corps, methode, delai) {
   const ctrl = new AbortController();
   const minuteur = setTimeout(() => ctrl.abort(), delai);
   try {
     const rep = await fetch(`${API}/${chemin}`, {
       method: methode,
-      headers: {
-        "Content-Type": "application/json",
-        "x-goog-api-key": cle,
-      },
+      headers: { "Content-Type": "application/json", "x-goog-api-key": cle },
       body: methode === "POST" ? JSON.stringify(corps) : undefined,
       signal: ctrl.signal,
     });
     if (!rep.ok) {
       let detail = "";
-      try {
-        detail = (await rep.json()).error?.message || "";
-      } catch {}
-      const e = new GeminiError(
-        `HTTP ${rep.status} ${detail.slice(0, 160)}`.trim(),
-        rep.status,
-        false
-      );
-      e.refusee =
-        rep.status === 401 ||
-        rep.status === 403 ||
+      try { detail = (await rep.json()).error?.message || ""; } catch { /* corps vide */ }
+      const e = new GeminiError(`HTTP ${rep.status} ${detail.slice(0, 160)}`.trim(), rep.status, false);
+      e.refusee = rep.status === 401 || rep.status === 403 ||
         (rep.status === 400 && /api key/i.test(detail));
       throw e;
     }
     return await rep.json();
   } catch (e) {
     if (e instanceof GeminiError) throw e;
-    if (e.name === "AbortError") {
-      throw new GeminiError("Délai dépassé", 0, false);
-    }
+    if (e.name === "AbortError") throw new GeminiError("Délai dépassé", 0, false);
     throw new GeminiError("Réseau indisponible : " + e.message, 0, false);
   } finally {
     clearTimeout(minuteur);
   }
 }
 
-async function appel(
-  chemin,
-  corps,
-  { methode = "POST", delai = 45000, cle: cleTest } = {}
-) {
-  if (cleTest) {
-    try {
-      return await appelUneCle(cleTest, chemin, corps, methode, delai);
-    } catch (e) {
-      if (e.refusee) e.fatal = true;
-      throw e;
-    }
+// Essaie les clés l'une après l'autre. À TOUTE erreur (quota, clé refusée,
+// serveur, requête refusée, réseau, délai…) : clé suivante tout de suite,
+// dans le même appel. Pauses : quota 1 min, clé refusée 24 h ; les autres
+// erreurs ne mettent pas la clé en pause. Réseau / délai : 2 clés au plus
+// (inutile de tout essayer si tu es hors ligne).
+async function appel(chemin, corps, { methode = "POST", delai = 45000, cle: cleTest } = {}) {
+  if (cleTest) {                       // test d'une clé précise : pas de bascule
+    try { return await appelUneCle(cleTest, chemin, corps, methode, delai); }
+    catch (e) { if (e.refusee) e.fatal = true; throw e; }
   }
-
   const cles = lireCles();
   if (!cles.length) throw new GeminiError("Clé API absente", 0, true);
   if (actif >= cles.length) actif = 0;
-
-  let derniere = null;
-  let essayees = 0;
-
+  let derniere = null, essayees = 0, sansReponse = 0;
   for (let i = 0; i < cles.length; i++) {
     const idx = (actif + i) % cles.length;
     const cle = cles[idx];
     if ((pauses.get(cle) || 0) > Date.now()) continue;
     essayees++;
-
     try {
       const r = await appelUneCle(cle, chemin, corps, methode, delai);
-      if (idx !== actif) {
-        actif = idx;
-        prevenir(idx, cles.length);
-      }
+      if (idx !== actif) { actif = idx; prevenir(idx, cles.length); }
       return r;
     } catch (e) {
       derniere = e;
-      if (e.status === 429) {
-        pauses.set(cle, Date.now() + PAUSE_QUOTA);
-      } else if (e.refusee) {
-        pauses.set(cle, Date.now() + PAUSE_REFUSEE);
-      } else {
-        throw e;
-      }
+      if (e.status === 429) pauses.set(cle, Date.now() + PAUSE_QUOTA);
+      else if (e.refusee) pauses.set(cle, Date.now() + PAUSE_REFUSEE);
+      if (!e.status && ++sansReponse >= 2) break;     // réseau / délai : 2 essais maximum
     }
   }
-
-  if (!essayees) {
-    throw new GeminiError(
-      "Toutes tes clés sont épuisées pour le moment. Réessaie dans une minute ou ajoute une clé.",
-      429,
-      false
-    );
-  }
-
-  if (cles.every((c) => (pauses.get(c) || 0) > Date.now() + PAUSE_QUOTA)) {
-    derniere.fatal = true;
-  }
+  if (!essayees) throw new GeminiError("Toutes tes clés sont épuisées pour le moment. Réessaie dans une minute ou ajoute une clé.", 429, false);
+  if (cles.every((c) => (pauses.get(c) || 0) > Date.now() + PAUSE_QUOTA)) derniere.fatal = true;
   throw derniere;
+}
+
+// Passe tout de suite à la clé suivante (appelée aussi quand une réponse est
+// vide ou illisible, pour que la tentative d'après parte sur une autre clé).
+export function cleSuivante() {
+  const n = lireCles().length;
+  if (n > 1) { actif = (actif + 1) % n; prevenir(actif, n); }
 }
 
 const pause = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// ---------- Test d'une clé ----------
+// Retourne { ok: true } ou { ok: false, erreur: "..." }
 export async function testerCle(cle) {
   try {
-    await appel("models?pageSize=1", null, {
-      methode: "GET",
-      delai: 15000,
-      cle: String(cle || "").trim() || undefined,
-    });
+    await appel("models?pageSize=1", null, { methode: "GET", delai: 15000, cle: String(cle || "").trim() || undefined });
     return { ok: true };
   } catch (e) {
     return { ok: false, erreur: e.message };
   }
 }
 
+// ---------- Sources de la recherche web ----------
 function sources(candidat) {
-  const liens = [];
-  const vus = new Set();
+  const liens = [], vus = new Set();
   const morceaux = candidat?.groundingMetadata?.groundingChunks || [];
   for (const c of morceaux) {
     const w = c.web;
@@ -235,76 +205,55 @@ function sources(candidat) {
   return liens.slice(0, 4);
 }
 
+// ---------- Génération de texte ----------
+// historique : [{ role: "user" | "model", texte: "..." }]
+// photos     : tableau de parts créées par photoVersPart()
+// Retourne   : { texte, modele (utilisé), sources: [{titre, url}] }
+// Si le modèle choisi échoue, repli sur MODELE_DEFAUT. La recherche web est
+// abandonnée à la dernière tentative si elle bloque tout.
 export async function generer({
-  system = "",
-  historique = [],
-  message,
-  photos = [],
-  modele = MODELE_DEFAUT,
-  web = false,
-  essais = 4,
-  temperature = TEMPERATURE_DEFAUT,
-  json = false,
+  system = "", historique = [], message, photos = [],
+  modele = MODELE_DEFAUT, web = false, essais = 4,
+  temperature = TEMPERATURE_DEFAUT, json = false,   // json = true : réponse forcée en JSON (sans recherche web)
 }) {
   const contents = historique.map((m) => ({
     role: m.role === "user" ? "user" : "model",
     parts: [{ text: m.texte }],
   }));
-
-  contents.push({
-    role: "user",
-    parts: [{ text: message }, ...photos.slice(0, MAX_PHOTOS)],
-  });
+  contents.push({ role: "user", parts: [{ text: message }, ...photos.slice(0, MAX_PHOTOS)] });
 
   let cible = modele;
   let derniere = null;
-
   for (let i = 0; i < essais; i++) {
     const corps = { contents, generationConfig: { temperature } };
     if (json) corps.generationConfig.responseMimeType = "application/json";
     if (system) corps.systemInstruction = { parts: [{ text: system }] };
-
     const avecWeb = web && i < essais - 1;
     if (avecWeb) corps.tools = [{ google_search: {} }];
-
     try {
       const j = await appel(`models/${cible}:generateContent`, corps);
       const cand = j.candidates?.[0];
-      const texte = (cand?.content?.parts || [])
-        .map((p) => p.text || "")
-        .join("")
-        .trim();
-
+      const texte = (cand?.content?.parts || []).map((p) => p.text || "").join("").trim();
       if (!texte) {
         const bloc = j.promptFeedback?.blockReason;
-        throw new GeminiError(
-          "Réponse vide" + (bloc ? ` (bloquée : ${bloc})` : "")
-        );
+        throw new GeminiError("Réponse vide" + (bloc ? ` (bloquée : ${bloc})` : ""));
       }
-
-      return {
-        texte,
-        modele: cible,
-        sources: avecWeb ? sources(cand) : [],
-      };
+      return { texte, modele: cible, sources: avecWeb ? sources(cand) : [] };
     } catch (e) {
       derniere = e;
-      console.warn(`⚠ ${cible} : ${e.message}`);
+      console.warn(`⚠️ ${cible} : ${e.message}`);
       if (e.fatal) throw e;
-      if (cible !== MODELE_DEFAUT) {
-        cible = MODELE_DEFAUT;
-      } else if (i < essais - 1) {
-        await pause(2 ** (i + 1) * 1000);
-      }
+      cleSuivante();
+      if (cible !== MODELE_DEFAUT) cible = MODELE_DEFAUT;
+      else if (i < essais - 1) await pause(2 ** (i + 1) * 1000);
     }
   }
-
-  throw new GeminiError(
-    "Échec de l'appel Gemini après plusieurs essais : " +
-      (derniere?.message || "")
-  );
+  throw new GeminiError("Échec de l'appel Gemini après plusieurs essais : " + (derniere?.message || ""));
 }
 
+// ---------- Embeddings (pour la mémoire, module 2) ----------
+// Les vecteurs réduits à 768 dimensions ne sont pas normalisés : on le fait ici,
+// ce qui permet au module mémoire de comparer par simple produit scalaire.
 function normaliser(v) {
   let n = 0;
   for (const x of v) n += x * x;
@@ -312,6 +261,8 @@ function normaliser(v) {
   return v.map((x) => x / n);
 }
 
+// tache : "RETRIEVAL_DOCUMENT" pour enregistrer un souvenir,
+//         "RETRIEVAL_QUERY" pour chercher avec une question.
 export async function embed(texte, tache = "RETRIEVAL_DOCUMENT") {
   let derniere = null;
   for (let i = 0; i < 2; i++) {
@@ -322,27 +273,24 @@ export async function embed(texte, tache = "RETRIEVAL_DOCUMENT") {
         taskType: tache,
         outputDimensionality: DIMS_EMBED,
       });
-
       const v = j.embedding?.values;
       if (!v?.length) throw new GeminiError("Embedding vide");
       return normaliser(v);
     } catch (e) {
       derniere = e;
       if (e.fatal) throw e;
+      cleSuivante();
       await pause(1500);
     }
   }
   throw derniere;
 }
 
+// ---------- Photos : réduction avant envoi (économise quotas et données) ----------
+// fichier : objet File (input type="file" accept="image/*")
 export async function photoVersPart(fichier) {
-  const bmp = await createImageBitmap(fichier, {
-    imageOrientation: "from-image",
-  });
-  const ratio = Math.min(
-    1,
-    TAILLE_PHOTO / Math.max(bmp.width, bmp.height)
-  );
+  const bmp = await createImageBitmap(fichier, { imageOrientation: "from-image" });
+  const ratio = Math.min(1, TAILLE_PHOTO / Math.max(bmp.width, bmp.height));
   const canvas = document.createElement("canvas");
   canvas.width = Math.round(bmp.width * ratio);
   canvas.height = Math.round(bmp.height * ratio);

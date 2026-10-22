@@ -8,11 +8,11 @@
 //        à la réouverture suivante).
 // Pour forcer une mise à jour chez tous : changer VERSION ci-dessous.
 // =====================================================================
-const VERSION = "mk4-v1";
+const VERSION = "mk4-v3";
 const FICHIERS = [
   "./", "index.html", "style.css", "manifest.json",
   "app.js", "gemini.js", "memoire.js", "extraction.js", "chat.js",
-  "ui.js", "demarrage.js", "voix.js",
+  "ui.js", "demarrage.js", "voix.js", "reglages.js", "humeur.js",
   "icon-192.png", "icon-512.png", "icon-maskable-512.png",
 ];
 
