@@ -2,8 +2,7 @@
 // Mk4 PWA — MODULE 1 : gemini.js (appels à Gemini)
 // Rôle : clés API (jusqu'à 5, stockées sur l'appareil, bascule automatique
 //        à TOUTE erreur), test des clés, génération de texte avec repli de
-//        modèle (réponses longues possibles), recherche web, photos,
-//        embeddings. appelGemini() sert aussi à la voix (tts.js).
+//        modèle, recherche web, photos, embeddings.
 // Ne dépend d'aucun autre module. Les autres modules l'importent :
 //   import { generer, embed, lireCle } from "./gemini.js";
 // =====================================================================
@@ -24,8 +23,6 @@ export const DIMS_EMBED = 768;
 export const MAX_PHOTOS = 3;
 export const TAILLE_PHOTO = 1024;
 export const TEMPERATURE_DEFAUT = 0.85;   // au-dessus de 0,9 il divague
-export const MAX_TOKENS_DEFAUT = 16384;   // réponses très longues possibles (la réflexion du modèle compte dedans)
-const DELAI_GENERATION = 120000;          // une longue réponse peut prendre plus d'une minute
 
 // ---------- Erreur dédiée ----------
 // fatal = true : inutile de réessayer (aucune clé ou toutes refusées).
@@ -174,9 +171,6 @@ async function appel(chemin, corps, { methode = "POST", delai = 45000, cle: cleT
   throw derniere;
 }
 
-// Même appel avec bascule de clés, pour les autres modules (voix : tts.js).
-export const appelGemini = appel;
-
 // Passe tout de suite à la clé suivante (appelée aussi quand une réponse est
 // vide ou illisible, pour que la tentative d'après parte sur une autre clé).
 export function cleSuivante() {
@@ -221,7 +215,6 @@ export async function generer({
   system = "", historique = [], message, photos = [],
   modele = MODELE_DEFAUT, web = false, essais = 4,
   temperature = TEMPERATURE_DEFAUT, json = false,   // json = true : réponse forcée en JSON (sans recherche web)
-  maxTokens = MAX_TOKENS_DEFAUT,
 }) {
   const contents = historique.map((m) => ({
     role: m.role === "user" ? "user" : "model",
@@ -232,24 +225,20 @@ export async function generer({
   let cible = modele;
   let derniere = null;
   for (let i = 0; i < essais; i++) {
-    const corps = { contents, generationConfig: { temperature, maxOutputTokens: maxTokens } };
+    const corps = { contents, generationConfig: { temperature } };
     if (json) corps.generationConfig.responseMimeType = "application/json";
     if (system) corps.systemInstruction = { parts: [{ text: system }] };
     const avecWeb = web && i < essais - 1;
     if (avecWeb) corps.tools = [{ google_search: {} }];
     try {
-      const j = await appel(`models/${cible}:generateContent`, corps, { delai: DELAI_GENERATION });
+      const j = await appel(`models/${cible}:generateContent`, corps);
       const cand = j.candidates?.[0];
       const texte = (cand?.content?.parts || []).map((p) => p.text || "").join("").trim();
       if (!texte) {
         const bloc = j.promptFeedback?.blockReason;
         throw new GeminiError("Réponse vide" + (bloc ? ` (bloquée : ${bloc})` : ""));
       }
-      const coupee = cand?.finishReason === "MAX_TOKENS";
-      return {
-        texte: coupee ? texte + "\n\n(Réponse coupée : écris « continue » pour avoir la suite.)" : texte,
-        modele: cible, sources: avecWeb ? sources(cand) : [],
-      };
+      return { texte, modele: cible, sources: avecWeb ? sources(cand) : [] };
     } catch (e) {
       derniere = e;
       console.warn(`⚠️ ${cible} : ${e.message}`);
