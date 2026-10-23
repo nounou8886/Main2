@@ -1,14 +1,17 @@
 // =====================================================================
-// Mk4 PWA — MODULE 7 : voix.js (appel vocal, 100 % gratuit)
-// Rôle : écouter (micro du navigateur), répondre à voix haute (voix du
-//        téléphone réglée en « robot sympa »), et un écran d'appel qui
-//        boucle : écoute → Gemini → parole → écoute…
-// Dépend de : rien (il reçoit le chat du module 4 en paramètre).
+// Mk4 PWA — MODULE 7 : voix.js (appel vocal, gratuit) — version 2
+// Rôle : écouter (micro du navigateur), répondre à voix haute, et un écran
+//        d'appel qui boucle : écoute → Gemini → parole → écoute…
+// Nouveautés : voix naturelle Gemini TTS (tts.js) avec repli automatique
+//        sur la voix du téléphone, bouton « Couper la parole », réponses
+//        longues possibles pendant l'appel.
+// Dépend de : tts.js (il reçoit le chat du module 4 en paramètre).
 //   import { brancherVoix } from "./voix.js";
 //   brancherVoix({ racine, chat });   // ajoute le bouton 📞 dans l'en-tête
 // Note : la reconnaissance vocale marche surtout dans Chrome (Android) et
-//        a besoin d'internet ; les voix dépendent du téléphone.
+//        a besoin d'internet ; les voix du téléphone dépendent du téléphone.
 // =====================================================================
+import { parlerGemini, arreterAudio, preparerAudio, VOIX_GEMINI, VOIX_GEMINI_DEFAUT } from "./tts.js";
 
 const CLE_VOIX = "mk4_voix";
 const CLE_OPTIONS = "mk4_options";        // écrit par ui.js (modèle, recherche web)
@@ -20,8 +23,15 @@ export const PRESETS = {
   posee:     { label: "🎙️ Posée",       pitch: 0.85, rate: 0.95 },
 };
 export const PRESET_DEFAUT = "robot";
+export const MOTEURS = {
+  gemini:    "✨ Gemini (naturelle)",
+  telephone: "📱 Voix du téléphone",
+};
+export const MOTEUR_DEFAUT = "gemini";
 export const CONSIGNE_APPEL =
-  " Tu es en appel vocal : réponds en une à trois phrases courtes et naturelles, sans liste ni mise en forme, comme à l'oral.";
+  " Tu es en appel vocal : parle naturellement, comme à l'oral, sans liste ni mise en forme. " +
+  "Réponds court (une à trois phrases) aux questions simples ; quand le sujet le demande " +
+  "(explication, histoire, analyse) ou quand on te le demande, développe longuement.";
 const SILENCES_MAX = 3;                   // 3 silences d'affilée : on raccroche
 
 export function voixDisponible() {
@@ -31,11 +41,15 @@ export function voixDisponible() {
   };
 }
 
-function lireReglages() {
+export function lireReglages() {
   try {
     const r = JSON.parse(localStorage.getItem(CLE_VOIX) || "{}");
-    return { preset: PRESETS[r.preset] ? r.preset : PRESET_DEFAUT };
-  } catch { return { preset: PRESET_DEFAUT }; }
+    return {
+      preset: PRESETS[r.preset] ? r.preset : PRESET_DEFAUT,
+      moteur: MOTEURS[r.moteur] ? r.moteur : MOTEUR_DEFAUT,
+      voix: VOIX_GEMINI.some((v) => v.id === r.voix) ? r.voix : VOIX_GEMINI_DEFAUT,
+    };
+  } catch { return { preset: PRESET_DEFAUT, moteur: MOTEUR_DEFAUT, voix: VOIX_GEMINI_DEFAUT }; }
 }
 function ecrireReglages(r) { try { localStorage.setItem(CLE_VOIX, JSON.stringify(r)); } catch { /* rien */ } }
 function lireOptions() { try { return JSON.parse(localStorage.getItem(CLE_OPTIONS) || "{}"); } catch { return {}; } }
@@ -105,13 +119,13 @@ function listeVoix() {
 
 // ---------- Parler ----------
 let parleId = 0;
-// Retourne true si tout a été dit, false si interrompu. Ne lève jamais d'erreur.
-export async function parler(texte, { preset = PRESET_DEFAUT, langue = LANGUE_DEFAUT } = {}) {
+
+// Lecture avec la voix du téléphone (texte déjà nettoyé). true = tout dit.
+async function parlerTelephone(texte, moi, { preset, langue }) {
   const s = window.speechSynthesis;
   if (!s) return false;
-  const morceaux = decouper(textePourVoix(texte));
+  const morceaux = decouper(texte);
   if (!morceaux.length) return true;
-  const moi = ++parleId;
   s.cancel();
   const voix = choisirVoix(await listeVoix(), langue);
   const p = PRESETS[preset] || PRESETS[PRESET_DEFAUT];
@@ -133,8 +147,33 @@ export async function parler(texte, { preset = PRESET_DEFAUT, langue = LANGUE_DE
   return moi === parleId;
 }
 
+// Retourne true si tout a été dit, false si interrompu. Ne lève jamais d'erreur.
+// moteur "gemini" : voix naturelle ; si elle échoue (quota, réseau…), la suite du
+// texte est lue avec la voix du téléphone et onRepli(message) est appelé.
+export async function parler(texte, {
+  preset = PRESET_DEFAUT, langue = LANGUE_DEFAUT,
+  moteur = "telephone", voixGemini = VOIX_GEMINI_DEFAUT, onRepli = () => {},
+} = {}) {
+  let propre = textePourVoix(texte);
+  if (!propre) return true;
+  const moi = ++parleId;
+  try { window.speechSynthesis?.cancel(); } catch { /* rien */ }
+  arreterAudio();
+  if (moteur === "gemini") {
+    const r = await parlerGemini(propre, { voix: voixGemini, actuel: () => moi === parleId });
+    if (r.etat === "fini") return moi === parleId;
+    if (r.etat === "interrompu" || moi !== parleId) return false;
+    if (r.erreur && r.erreur !== "pause") {
+      try { onRepli("Voix Gemini indisponible (" + String(r.erreur).slice(0, 120) + ") : voix du téléphone."); } catch { /* rien */ }
+    }
+    propre = r.reste || propre;
+  }
+  return parlerTelephone(propre, moi, { preset, langue });
+}
+
 export function arreterParole() {
   parleId++;
+  arreterAudio();
   try { window.speechSynthesis?.cancel(); } catch { /* rien */ }
 }
 
@@ -185,10 +224,11 @@ function messageErreur(e) {
 }
 
 // ---------- L'appel : écoute → Gemini → parole → écoute… ----------
+// lireVoix() : retourne { preset, moteur, voixGemini } au moment de parler.
 // Callbacks : onEtat("ecoute"|"reflexion"|"parole"|"fin"), onPartiel(texte), onVous(texte),
 //             onReponse(texte), onMessage(texte). Retourne { raccrocher(), fini, actif }.
 export function demarrerAppel({
-  chat, langue = LANGUE_DEFAUT, lirePreset = () => PRESET_DEFAUT,
+  chat, langue = LANGUE_DEFAUT, lireVoix = () => ({}),
   onEtat = () => {}, onPartiel = () => {}, onVous = () => {}, onReponse = () => {}, onMessage = () => {},
 }) {
   let actif = true, silences = 0, verrou = null;
@@ -197,6 +237,8 @@ export function demarrerAppel({
   try {                                    // garde l'écran allumé pendant l'appel
     navigator.wakeLock?.request("screen").then((l) => { verrou = l; if (!actif) l.release().catch(() => {}); }).catch(() => {});
   } catch { /* rien */ }
+
+  const options = () => ({ ...lireVoix(), langue, onRepli: (m) => onMessage(m) });
 
   const raccrocher = () => {
     if (!actif) return;
@@ -229,14 +271,14 @@ export function demarrerAppel({
         } catch (e) {
           if (!actif) break;
           onMessage("⚠️ " + (e.message || "erreur"));
-          await parler("Désolé, j'ai eu un souci. Réessaie.", { preset: lirePreset(), langue });
+          await parler("Désolé, j'ai eu un souci. Réessaie.", options());
           continue;
         }
         if (!actif) break;
         if (!rep) continue;
         onReponse(rep.texte);
         onEtat("parole");
-        await parler(rep.texte, { preset: lirePreset(), langue });
+        await parler(rep.texte, options());
       }
     } finally { raccrocher(); }
   })();
@@ -263,6 +305,7 @@ export function brancherVoix({ racine, chat }) {
   const tete = racine.querySelector(".tete");
   if (!tete) return null;
   const dispo = voixDisponible();
+  const reglages = lireReglages();
   let appel = null;
 
   const orbe = el("div", { class: "orbe" });
@@ -270,25 +313,51 @@ export function brancherVoix({ racine, chat }) {
   const vous = el("p", { class: "appel-vous" });
   const lui = el("p", { class: "appel-lui" });
   const msg = el("p", { class: "appel-msg" });
-  const choix = el("select", { id: "preset", "aria-label": "Voix" },
+  const moteur = el("select", { id: "moteur", "aria-label": "Moteur de voix" },
+    Object.entries(MOTEURS).map(([id, label]) => el("option", { value: id, texte: label })));
+  const voixG = el("select", { id: "voixGemini", "aria-label": "Voix Gemini" },
+    VOIX_GEMINI.map((v) => el("option", { value: v.id, texte: v.label })));
+  const choix = el("select", { id: "preset", "aria-label": "Voix du téléphone" },
     Object.entries(PRESETS).map(([id, p]) => el("option", { value: id, texte: p.label })));
-  choix.value = lireReglages().preset;
-  choix.addEventListener("change", () => ecrireReglages({ preset: choix.value }));
+  moteur.value = reglages.moteur;
+  voixG.value = reglages.voix;
+  choix.value = reglages.preset;
+  const sauver = () => ecrireReglages({ preset: choix.value, moteur: moteur.value, voix: voixG.value });
+  const majChoix = () => { voixG.hidden = moteur.value !== "gemini"; choix.hidden = moteur.value === "gemini"; };
+  moteur.addEventListener("change", () => { sauver(); majChoix(); });
+  voixG.addEventListener("change", sauver);
+  choix.addEventListener("change", sauver);
+  majChoix();
+  const lireVoix = () => ({ preset: choix.value, moteur: moteur.value, voixGemini: voixG.value });
+
   const btnTest = el("button", { class: "btn", type: "button", texte: "🔊 Tester la voix" });
+  const btnCouper = el("button", { class: "btn", type: "button", texte: "✋ Couper la parole", hidden: true });
   const btnAppel = el("button", { class: "btn principal", type: "button", texte: "📞 Appeler" });
   const btnFermer = el("button", { class: "btn", type: "button", texte: "✕ Fermer" });
   const ecran = el("div", { class: "appel", hidden: true, "data-etat": "repos" },
     el("b", { class: "appel-nom", texte: chat.nom }), orbe, statut, vous, lui, msg,
-    el("div", { class: "appel-voix" }, choix, btnTest), btnAppel, btnFermer);
+    el("div", { class: "appel-voix" }, moteur, voixG, choix, btnTest), btnCouper, btnAppel, btnFermer);
   document.body.append(ecran);
 
-  const etat = (e) => { ecran.dataset.etat = e; statut.textContent = STATUTS[e] || ""; };
+  const etat = (e) => {
+    ecran.dataset.etat = e;
+    statut.textContent = STATUTS[e] || "";
+    btnCouper.hidden = e !== "parole";
+  };
 
   btnTest.addEventListener("click", () => {
-    parler("Salut ! Je suis " + chat.nom + ", ton assistant. Comment tu me trouves ?", { preset: choix.value });
+    preparerAudio();                                  // le clic déverrouille le son
+    msg.textContent = "";
+    btnCouper.hidden = false;
+    parler("Salut ! Je suis " + chat.nom + ", ton assistant. Comment tu me trouves ?",
+      { ...lireVoix(), onRepli: (m) => { msg.textContent = m; } })
+      .finally(() => { if (!appel?.actif) btnCouper.hidden = true; });
   });
 
+  btnCouper.addEventListener("click", () => arreterParole());   // en appel, l'écoute reprend ensuite
+
   btnAppel.addEventListener("click", () => {
+    preparerAudio();
     if (appel?.actif) { appel.raccrocher(); return; }
     if (!dispo.ecoute || !dispo.parole) { msg.textContent = messageErreur("indisponible"); return; }
     if (chat.occupe) { msg.textContent = "Une réponse est déjà en cours, patiente un instant."; return; }
@@ -296,7 +365,7 @@ export function brancherVoix({ racine, chat }) {
     btnAppel.textContent = "📞 Raccrocher";
     btnTest.disabled = true;
     appel = demarrerAppel({
-      chat, lirePreset: () => choix.value,
+      chat, lireVoix,
       onEtat: (e) => {
         etat(e);
         if (e === "fin") { btnAppel.textContent = "📞 Appeler"; btnTest.disabled = false; }
